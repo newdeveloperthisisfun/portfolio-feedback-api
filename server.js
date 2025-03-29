@@ -1,22 +1,39 @@
 const express = require('express');
+const puppeteer = require('puppeteer');
 const { OpenAI } = require('openai');
+const cors = require('cors');
 const app = express();
 
 app.use(express.json());
+app.use(cors()); // Allows requests from any origin (e.g., Netlify)
 
-const openai = new OpenAI({ apiKey: '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' });
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 app.post('/analyze', async (req, res) => {
-    const { content, experience, specialization } = req.body;
+    const { url, password, experience, specialization } = req.body;
 
-    // Validation: Check for required fields
-    if (!content || !experience || !specialization) {
-        return res.status(400).json({ error: 'Missing required fields: content, experience, and specialization are required' });
+    if (!url || !experience || !specialization) {
+        return res.status(400).json({ error: 'Missing required fields: url, experience, and specialization are required' });
     }
 
-    const prompt = `Analyze this portfolio content for a ${experience} ${specialization} designer: "${content}". Provide feedback on navigation, hero section, and visuals.`;
-
     try {
+        const browser = await puppeteer.launch({ headless: true });
+        const page = await browser.newPage();
+
+        if (password) {
+            await page.goto(url);
+            await page.type('#password', password);
+            await page.click('#submit');
+            await page.waitForNavigation();
+        } else {
+            await page.goto(url);
+        }
+
+        const content = await page.evaluate(() => document.body.innerText);
+        await browser.close();
+
+        const prompt = `Analyze this portfolio content for a ${experience} ${specialization} designer: "${content}". Provide feedback on navigation, hero section, and visuals.`;
+
         const response = await openai.chat.completions.create({
             model: 'gpt-3.5-turbo',
             messages: [
@@ -30,7 +47,7 @@ app.post('/analyze', async (req, res) => {
         res.json({ feedback });
     } catch (error) {
         console.error(error);
-        res.status(500).send('Something went wrong');
+        res.status(500).json({ error: 'Something went wrong' });
     }
 });
 
